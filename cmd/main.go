@@ -259,7 +259,7 @@ func watchConfigFile(filename, adapterName string) {
 	}
 
 	// get current config
-	lastCfg, _, err := loadConfigWithLogger(nil, filename, adapterName)
+	_, rawCfg, err := loadConfigWithLogger(nil, filename, adapterName)
 	if err != nil {
 		logger().Error("unable to load latest config", zap.Error(err))
 		return
@@ -270,6 +270,22 @@ func watchConfigFile(filename, adapterName string) {
 	// begin poller
 	//nolint:staticcheck
 	for range time.Tick(1 * time.Second) {
+		// get current raw caddyfile content
+		newRawCfg, err := os.ReadFile(filename)
+		if err != nil {
+			logger().Error("unable to read config file", zap.Error(err))
+			return
+		}
+
+		// if the raw caddyfile hasn't changed, nothing to do
+		if bytes.Equal([]byte(rawCfg), newRawCfg) {
+			continue
+		}
+		logger().Info("config file changed; reloading")
+
+		// remember the current raw caddyfile content
+		rawCfg = string(newRawCfg)
+
 		// get current config
 		newCfg, _, err := loadConfigWithLogger(nil, filename, adapterName)
 		if err != nil {
@@ -277,17 +293,8 @@ func watchConfigFile(filename, adapterName string) {
 			return
 		}
 
-		// if it hasn't changed, nothing to do
-		if bytes.Equal(lastCfg, newCfg) {
-			continue
-		}
-		logger().Info("config file changed; reloading")
-
-		// remember the current config
-		lastCfg = newCfg
-
 		// apply the updated config
-		err = caddy.Load(lastCfg, false)
+		err = caddy.Load(newCfg, false)
 		if err != nil {
 			logger().Error("applying latest config", zap.Error(err))
 			continue
